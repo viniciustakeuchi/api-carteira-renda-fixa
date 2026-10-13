@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  qualidade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check . && ruff format --check .
+      - name: Tipagem
+        run: mypy app tests
+      - name: Testes
+        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=90
+
+  migracoes:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: carteira
+          POSTGRES_PASSWORD: carteira
+          POSTGRES_DB: carteira
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U carteira"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+    env:
+      DATABASE_URL: postgresql+asyncpg://carteira:carteira@localhost:5432/carteira
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install .
+      - name: Aplica e desfaz as migrações
+        run: alembic upgrade head && alembic downgrade base && alembic upgrade head
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t api-carteira-renda-fixa .
